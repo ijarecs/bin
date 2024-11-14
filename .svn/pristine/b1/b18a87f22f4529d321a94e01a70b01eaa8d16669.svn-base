@@ -1,0 +1,157 @@
+#!/usr/bin/perl -w
+
+use strict;
+use Date::Calc qw(Delta_Days);
+
+my $maildir="~/Data/saved-mails/gmail-NN";
+my (%inputdata, %outputdata);
+
+# mentett email-fájlok feldolgozása
+foreach (`ls $maildir/*.eml`) {
+	chomp;
+	my $file = $_;
+	#print "$file\n";
+
+	# Értékes sorok kimmentése az email-fájlból
+	my($datum, @dayvalues, @quantity);
+	my $command = "egrep -e 'eszk.zalap\$' -e ' eszk.\$' -e 'eszk.zalaponk.nt, ' -e ' EUR\$' '$file'";
+	foreach (`$command`) {
+		next if /aktu..lis/;
+		
+		# Tipikus feldolgozandó szekvencia:
+		# A befektetési egységeinek összesített értéke =eszközalaponként, 2018.01.04-i
+		#   Euró kötvény eszközalap
+		#   9 360,65 EUR
+		#   USA részvénypiaci eszközalap
+		#   11 386,42 EUR
+		chomp;
+
+		if (/ EUR$/) {
+			# alap értéke
+			s/\D+(.+)\s+EUR/$1/;
+			s/\s+//;
+			s/,/./;
+			push @dayvalues, $_;
+		} elsif (/eszk..zalaponk..nt, (\d{4}\.\d{2}\.\d{2})/) {
+			# dátum
+			$datum = "$1";
+		} elsif (/(\d+,\d{2}\s+db)/) {
+			# darabszám
+			s/,/./;
+			push @quantity, $_;
+		} else {
+			# alap neve
+			s/^\s*//;
+			s/ eszk.+$//;
+			push @dayvalues, $_;
+		}
+	}
+
+	# @dayvalues tartalma: alap napi értéke/alapnév párok:
+	# páros elem   : alap értéke 
+	# páratlan elem: alap neve
+	# stb...
+	my($key_fondportfolio, @fondvalue, @fondname);
+	@fondvalue = do {my $i = 0; grep {$i++ % 2} @dayvalues};
+	@fondname = do {my $i = 1; grep {$i++ % 2} @dayvalues};
+	$key_fondportfolio = join('#', @fondname);
+
+	#print "datum: $datum\n";
+	#print "fondnames: @fondname\n";
+	#print "fondvalues: @fondvalue\n";
+	#print "fondportfolio: $key_fondportfolio\n";
+
+	$inputdata{$key_fondportfolio}{$datum} = \@fondvalue; 
+
+}
+
+my (%gaintotal, $gaintotal, $gaintotalproc);
+foreach (sort keys %inputdata) {
+	my $key_fondportfolio = $_;
+	print "=== $key_fondportfolio\n";
+
+	my @fondname = split '#', $key_fondportfolio;
+	my @datums = sort keys %{$inputdata{$key_fondportfolio}};
+	foreach my $datum (@datums) {
+		print " $datum - ";
+
+		my $total = 0;
+		my $i = 0;
+		foreach my $fondvalue (@{$inputdata{$key_fondportfolio}{$datum}}) {
+			print "$fondvalue ";
+			$total += $fondvalue;
+		}
+		printf " TOTAL: %.2f\n", $total;
+		$outputdata{$datum} += $total;
+	}
+
+	my $days = Delta_Days((split /\./, $datums[0]), split(/\./, $datums[$#datums]));
+	my $gain = $outputdata{$datums[$#datums]}-$outputdata{$datums[0]}; 
+	my $proc = $gain*100/$outputdata{$datums[0]}; 
+	$gaintotal{$key_fondportfolio} = sprintf "%.2f %.2f%%", $gain, $proc;
+	printf "=== Days:%2s - Gain: %.2f - %.2f%%\n\n", $days, $gain, $proc; 
+
+	$gaintotal += $gain;
+	$gaintotalproc += $proc;
+}
+my $title = sprintf "Gain total: %.2f %.2f%%", $gaintotal, $gaintotalproc;
+print "=== $title ===\n";
+
+my $command = qq|feedgnuplot --lines --domain --timefmt '%Y.%m.%d' --set 'format x "%m.%d"' --xlabel "Dátum" --ylabel "EUR" --legend 0 "Total" --title "NN - $title" --set grid --set 'xtics font ", 8"' --set 'term wxt title "NN - Total"' --exit|;
+open PLOT, "| $command" or die "can't fork: $!";
+foreach (sort keys %outputdata) {
+	print PLOT "$_ $outputdata{$_}\n";
+}
+close PLOT or die "bad spool: $! $?";
+
+do_plot("Euró kötvény#USA részvénypiaci");
+do_plot_separat("Euró kötvény#USA részvénypiaci");
+
+sub do_plot {
+	my $key_fondportfolio = shift; # pld.: Euró kötvény#USA részvénypiaci
+
+	my @fondname = split '#', $key_fondportfolio;
+	my ($legend, $i);
+	for ($i=0; $i <= $#fondname; $i++) {
+		$legend .= qq|--legend $i "$fondname[$i]" |;
+	}
+
+	$command = qq|feedgnuplot --lines --domain --timefmt '%Y.%m.%d' --set 'format x "%m.%d"' --xlabel "Dátum" --ylabel "EUR" $legend --title "NN - @fondname - Gain: $gaintotal{$key_fondportfolio}" --set grid --set 'xtics font ", 8"' --set 'term wxt title "NN - @fondname"' --exit|;
+	open PLOT, "| $command" or die "can't fork: $!";
+
+	foreach my $datum (sort keys %{$inputdata{$key_fondportfolio}}) {
+		print PLOT "$datum ";
+
+		my $i = 0;
+		foreach my $fondvalue (@{$inputdata{$key_fondportfolio}{$datum}}) {
+			print PLOT "$fondvalue ";
+		}
+		print PLOT "\n";
+	}
+	close PLOT or die "bad spool: $! $?";
+}
+
+
+sub do_plot_separat {
+	my $key_fondportfolio = shift; # pld.: Euró kötvény#USA részvénypiaci
+
+	my @fondname = split '#', $key_fondportfolio;
+	my ($legend, $i);
+	for ($i=0; $i <= $#fondname; $i++) {
+		$legend = qq|--legend 0 "$fondname[$i]"|;
+
+		$command = qq|feedgnuplot --lines --domain --timefmt '%Y.%m.%d' --set 'format x "%m.%d"' --xlabel "Dátum" --ylabel "EUR" $legend --title "NN - $fondname[$i]" --set grid --set 'xtics font ", 8"' --set 'term wxt title "NN - $fondname[$i]"' --exit|;
+		open PLOT, "| $command" or die "can't fork: $!";
+
+		foreach my $datum (sort keys %{$inputdata{$key_fondportfolio}}) {
+			print PLOT "$datum ";
+
+			my @values = @{$inputdata{$key_fondportfolio}{$datum}};
+			foreach my $fondvalue (@values) {
+				print PLOT $values[$i];
+			}
+			print PLOT "\n";
+		}
+		close PLOT or die "bad spool: $! $?";
+	}
+}

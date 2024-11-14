@@ -1,0 +1,8 @@
+while (`pwd >/dev/null`);
+do
+	wget --spider http://www.google.com >/dev/null 2>&1
+	if [ "$?" == 0 ]; then  
+	   spd-say 'ok'
+	   sleep 1
+	fi
+done
