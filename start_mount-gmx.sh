@@ -2,7 +2,7 @@
 
 # Quick start-stop-daemon example, derived from Debian /etc/init.d/ssh
 
-NAME=mount-gmx.sh
+NAME=mount-gmx
 DIR=/home/ijarecs
 PIDFILE=/home/ijarecs/$NAME.pid
 DAEMON=/home/ijarecs/bin/mount-gmx-new.sh
@@ -22,7 +22,8 @@ do_start(){
 
 do_stop(){
     opt=${@:-}
-    start-stop-daemon --stop $common_opts --signal $STOP_SIGNAL --oknodo $opt --remove-pidfile
+    #start-stop-daemon --stop $common_opts --signal $STOP_SIGNAL --oknodo $opt --remove-pidfile
+    start-stop-daemon --stop $common_opts --remove-pidfile
 }
 
 do_status(){
