@@ -4,7 +4,7 @@
 
 NAME=mount-gmx
 DIR=/home/ijarecs
-PIDFILE=/home/ijarecs/$NAME.pid
+PIDFILE=/home/ijarecs/tmp/$NAME.pid
 DAEMON=/home/ijarecs/bin/mount-gmx-new.sh
 #DAEMON_ARGS="[[31,0,37,1],[31,1,37,0]]"
 STOP_SIGNAL=INT
